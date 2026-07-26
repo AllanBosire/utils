@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+
+### Minor Changes
+
+- add explicit activation for synthetic Kibao test variables
+
 ## 2.0.4
 
 ### Patch Changes
