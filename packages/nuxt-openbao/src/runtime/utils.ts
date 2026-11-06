@@ -4,7 +4,7 @@ import { $fetch } from "ofetch";
 import { consola } from "consola";
 
 import { entries, execute, hasOwnProperties } from "@chiballc/utils";
-import type { OpenBaoOptions } from "../types";
+import type { OpenBaoOptions } from "./types";
 import { crawlVarsFromEnv, getEnvSereverURL, reconsileConfig, setEnv } from "./env";
 
 const console = consola.withTag("kibao-utils");
