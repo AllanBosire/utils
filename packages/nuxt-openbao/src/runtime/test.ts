@@ -1,4 +1,4 @@
-import type { KibaoConfig, KibaoTestConfig } from "../types";
+import type { KibaoConfig, KibaoTestConfig } from "./types";
 import { consola } from "consola";
 
 const console = consola.withTag("kibao");

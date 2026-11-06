@@ -4,7 +4,7 @@ import { defu } from "defu";
 import { joinURL } from "ufo";
 import { setEnv } from "../env";
 import { /* getAllVars */ getSecrets } from "../utils";
-import type { KibaoVars } from "../../types";
+import type { KibaoVars } from "../types";
 // import { entries } from "@chiballc/utils";
 
 export default defineNuxtPlugin({

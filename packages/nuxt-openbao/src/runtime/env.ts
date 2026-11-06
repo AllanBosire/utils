@@ -1,7 +1,7 @@
 import { entries, keys } from "@chiballc/utils";
 import { consola } from "consola";
 import { defu } from "defu";
-import type { KibaoConfig } from "../types";
+import type { KibaoConfig } from "./types";
 import type { None } from "@chiballc/types";
 import { env } from "std-env";
 

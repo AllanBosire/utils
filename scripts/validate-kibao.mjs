@@ -6,6 +6,12 @@ const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)))
 
 assertFile("dist/kibao/dist/module.mjs");
 assertFile("dist/kibao/dist/types.d.mts");
+assertFile("dist/kibao/dist/runtime/types.js");
+assertFile("dist/kibao/dist/runtime/types.d.ts");
+const runtimeTypes = readFileSync(resolve(root, "dist/kibao/dist/runtime/types.d.ts"), "utf8");
+for (const name of ["OpenBaoOptions", "KibaoConfig", "KibaoVars"]) {
+  assert(runtimeTypes.includes(name), `Missing auto-imported type ${name}`);
+}
 assertFile("dist/kibao/dist/runtime/index.js");
 assertFile("dist/kibao/dist/runtime/index.d.ts");
 assertFile("dist/kibao/dist/package.json");
@@ -15,6 +21,14 @@ assert(
   moduleSource.includes("../dist/runtime/env.js") && moduleSource.includes("../dist/runtime/utils.js"),
   "Expected Kibao module output to keep Nuxt module-builder's relative runtime imports",
 );
+
+assert(moduleSource.includes('resolver.resolve("./runtime/types")'), "Type auto-imports must target the emitted runtime types entry");
+assert(!moduleSource.includes('resolver.resolve("./types")'), "Type auto-imports must not target Nuxt module metadata");
+
+for (const name of ["utils", "env", "test"]) {
+  const declaration = readFileSync(resolve(root, `dist/kibao/dist/runtime/${name}.d.ts`), "utf8");
+  assert(!declaration.includes('"../types.js"'), `${name} must use runtime configuration types`);
+}
 
 const module = await import("@chiballc/utils/kibao");
 assertType(module.default, "function", "@chiballc/utils/kibao default export");

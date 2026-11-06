@@ -65,14 +65,14 @@ export default defineNuxtModule<KibaoConfig["kibao"]>({
 
     const imports = ["OpenBaoOptions", "KibaoConfig", "KibaoVars"];
     addImportsSources({
-      from: resolver.resolve("./types"),
+      from: resolver.resolve("./runtime/types"),
       imports,
       type: true,
     });
 
     imports.forEach((i) => {
       addServerImports({
-        from: resolver.resolve("./types"),
+        from: resolver.resolve("./runtime/types"),
         name: i,
         type: true,
       });

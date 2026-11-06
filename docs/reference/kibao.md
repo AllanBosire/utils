@@ -46,6 +46,8 @@ export default defineNuxtConfig({
 });
 ```
 
+Configuration types are emitted at `@chiballc/utils/kibao/runtime/types`. Nuxt and Nitro auto-imports use that entry; the module's `types.d.mts` is Nuxt module metadata.
+
 ### `OpenBaoOptions`
 
 `OpenBaoOptions` is a partial record of `public` and `private` access levels to `KibaoCredentials`. It permits configuring either access level independently.

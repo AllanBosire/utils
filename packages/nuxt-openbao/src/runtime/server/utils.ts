@@ -4,7 +4,7 @@ import { createStartupLatch, getAllVars, isStartupComplete } from "../utils";
 import { getTestVars } from "../test";
 import { entries } from "@chiballc/utils";
 import type { NitroApp } from "nitropack";
-import type { KibaoConfig, KibaoVars } from "~/src/types";
+import type { KibaoConfig, KibaoVars } from "../types";
 import type { H3Event } from "h3";
 import { env } from "std-env";
 import type { None } from "@chiballc/types";
