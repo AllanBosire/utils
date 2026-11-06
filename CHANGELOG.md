@@ -1,5 +1,11 @@
 # @chiballc/utils
 
+## 2.6.2
+
+### Patch Changes
+
+- e0568d4: Emit Kibao configuration types in a dedicated runtime entry and point Nuxt and Nitro type auto-imports at that entry. Fix unresolved OpenBaoOptions imports in built consumers.
+
 ## 2.6.1
 
 ### Patch Changes
