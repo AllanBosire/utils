@@ -1,5 +1,11 @@
 # @chiballc/utils
 
+## 2.6.1
+
+### Patch Changes
+
+- b6dd0c3: Recover incomplete Kibao startup reads on later requests with capped backoff. Read access documents concurrently with a shared four-second budget per access and one retry, preserving successful documents and keeping recovery off the request path.
+
 ## 2.6.0
 
 ### Minor Changes
