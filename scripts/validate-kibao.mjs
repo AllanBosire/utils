@@ -27,6 +27,9 @@ assertType(runtime.reconsileConfig, "function", "@chiballc/utils/kibao/runtime r
 const runtimeUtils = await import("@chiballc/utils/kibao/runtime/utils");
 assertType(runtimeUtils.getKibaoHeaders, "function", "@chiballc/utils/kibao/runtime/utils getKibaoHeaders");
 
+assertType(runtimeUtils.createStartupLatch, "function", "Kibao startup latch");
+assertType(runtimeUtils.isStartupComplete, "function", "Kibao startup completion");
+
 const runtimeEnv = await import("@chiballc/utils/kibao/runtime/env");
 assertType(runtimeEnv.setEnv, "function", "@chiballc/utils/kibao/runtime/env setEnv");
 

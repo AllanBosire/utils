@@ -43,9 +43,13 @@ At module setup, Kibao loads configured OpenBao values, writes them to the serve
 
 Environment variables can override configuration. Kibao recognizes `NUXT_KIBAO_*`, `KIBAO_*`, and `OPENBAO_*` forms. The OpenBao server URL can be supplied through `NUXT_KIBAO_SERVER_BAO`, `NUXT_PUBLIC_KIBAO_BAO_SERVER_URL`, or `DEFAULT_BAO_BASE_URL`.
 
+Startup reads access documents concurrently. Each access has a four-second budget covering AppRole login, the document read, and at most one retry after 250 ms. Successful documents remain available if another access fails. Missing credentials or a missing server are skipped rather than retried indefinitely.
+
+The initial startup attempt is shared by waiting requests. If startup is incomplete, later traffic triggers a single background retry after a one-second backoff, doubling up to 30 seconds. Those requests do not wait for recovery; handlers must continue to reject operations that lack required configuration. Recovery stops once all readable accesses have loaded. On Workers, HTTP recovery is registered with the request's `waitUntil` where available.
+
 ## Request safety
 
-The runtime helpers `getSecrets`, `getKibaoHeaders`, and `getKibaoToken` accept a caller-owned `AbortSignal`. Responses must be JSON and are streamed with a maximum size of 64 KiB. Kibao does not retry failed network operations, and its transport errors avoid including credentials, tokens, URLs, or response bodies.
+The runtime helpers `getSecrets`, `getKibaoHeaders`, and `getKibaoToken` accept a caller-owned `AbortSignal`. Responses must be JSON and are streamed with a maximum size of 64 KiB. These low-level helpers do not retry failed network operations, and its transport errors avoid including credentials, tokens, URLs, or response bodies.
 
 ```ts
 import { getSecrets } from "@chiballc/utils/kibao/runtime";

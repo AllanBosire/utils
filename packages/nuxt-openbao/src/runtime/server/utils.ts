@@ -1,6 +1,6 @@
 import { useRuntimeConfig } from "nitropack/runtime";
 import { applyRuntimeConfigEnv, reconsileConfig, setEnv, crawlVarsFromEnv } from "../env";
-import { getAllVars } from "../utils";
+import { createStartupLatch, getAllVars, isStartupComplete } from "../utils";
 import { getTestVars } from "../test";
 import { entries } from "@chiballc/utils";
 import type { NitroApp } from "nitropack";
@@ -48,7 +48,7 @@ function isCloudflareWorker() {
   return "WebSocketPair" in globalThis;
 }
 
-function createVarsPayload(vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<void> }) {
+function createVarsPayload(vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<boolean> }) {
   return {
     [KIBAO_INJECTED_ENV]: "true",
     get data() {
@@ -60,7 +60,7 @@ function createVarsPayload(vars: { readonly data: KibaoVars; refresh(refreshEven
 
 function attachCloudflareVars(
   event: Record<string, any>,
-  vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<void> },
+  vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<boolean> },
 ) {
   if (event.env && typeof event.env === "object") {
     Object.assign(event.env, vars.data);
@@ -87,7 +87,8 @@ export async function injectVars(options: { app: NitroApp }) {
     const refresh = async (refreshEvent?: H3Event) => {
       const refreshConfig = refreshEvent ? useRuntimeConfig(refreshEvent) : config;
       const refreshKibao = reconsileConfig(crawlVarsFromEnv(), refreshConfig);
-      const vars = getTestVars(refreshKibao) || (await getAllVars(refreshKibao.openbao || {}, { baseURL: refreshKibao.server?.bao }));
+      const test = getTestVars(refreshKibao);
+      const vars = test || (await getAllVars(refreshKibao.openbao || {}, { baseURL: refreshKibao.server?.bao }));
 
       for (const [_, _vars] of entries(vars)) {
         kibao.vars = {
@@ -97,6 +98,7 @@ export async function injectVars(options: { app: NitroApp }) {
         setEnv({ vars: { ..._vars, [KIBAO_INJECTED_ENV]: "true" } });
         applyRuntimeConfigEnv(_vars || {}, refreshConfig);
       }
+      return Boolean(test) || isStartupComplete(refreshKibao.openbao, vars, refreshKibao.server?.bao);
     };
 
     return {
@@ -108,12 +110,22 @@ export async function injectVars(options: { app: NitroApp }) {
   };
 
   const vars = init();
-  let startup = isCloudflareWorker() ? undefined : vars?.refresh?.();
-
-  const ensureStartup = (event?: H3Event) => {
-    startup ||= vars?.refresh?.(event);
-    return startup;
-  };
+  const ensureStartup = createStartupLatch<[event?: H3Event]>((event) => vars?.refresh(event), {
+    background: (attempt, event) => {
+      const cloudflare = event?.context?.cloudflare;
+      const context =
+        cloudflare && typeof cloudflare === "object" && "context" in cloudflare ? cloudflare.context : undefined;
+      if (typeof event?.waitUntil === "function") event.waitUntil(attempt);
+      else if (
+        context &&
+        typeof context === "object" &&
+        "waitUntil" in context &&
+        typeof context.waitUntil === "function"
+      )
+        context.waitUntil(attempt);
+    },
+  });
+  if (!isCloudflareWorker()) void ensureStartup()?.catch(() => {});
 
   const intoContext = async (event: { context?: Record<string, any> }, origin: string) => {
     await ensureStartup(isH3Event(event) ? event : undefined);
