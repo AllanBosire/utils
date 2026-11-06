@@ -171,7 +171,7 @@ function variablesFrom(response: unknown) {
   ) {
     throw new KibaoRequestError("The Kibao response is invalid.");
   }
-  
+
   if (
     !hasOwnProperties(response.data, ["data"] as const, {
       allowNullish: false,
@@ -179,7 +179,7 @@ function variablesFrom(response: unknown) {
   ) {
     throw new KibaoRequestError("The Kibao response is invalid.");
   }
-  return response.data.data as Record<string, string | number>
+  return response.data.data as Record<string, string | number>;
 }
 
 export async function getSecrets(
@@ -266,7 +266,7 @@ export async function getKibaoToken<T extends KibaoLoginResponse>(
     !("client_token" in response.auth) ||
     typeof response.auth.client_token !== "string"
   ) {
-    throw new KibaoRequestError("The Kibao response is invalid.", {cause: response});
+    throw new KibaoRequestError("The Kibao response is invalid.", { cause: response });
   }
 
   return {
@@ -344,27 +344,99 @@ export async function autoEnv(access: SmartString<KibaoAccess> = "public", updat
   return baoVars;
 }
 
-export async function getAllVars(openbao: OpenBaoOptions, options?: { baseURL?: string }) {
-  const _vars: Partial<Record<keyof OpenBaoOptions, Record<string, string | number>>> = {};
-  for (const [access, config] of entries(openbao)) {
-    if (!config) {
-      continue;
-    }
-
-    const baseURL = options?.baseURL || getEnvSereverURL() || config.baseURL;
-    if (!baseURL) {
-      console.fatal("We could not determine the location of you openbao instance");
-      continue;
-    }
-
-    const { result, error } = await execute(getSecrets({ ...config, baseURL }, access));
-    if (error) {
-      console.error("Failed to fetch variables for access", access, "with error", error);
-      continue;
-    }
-
-    _vars[access] = result.vars;
+const KIBAO_RETRY_DELAY_MS = 250;
+const KIBAO_ACCESS_BUDGET_MS = 4e3;
+function isPermanentKibaoFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return message === "The Kibao credentials are invalid." || message === "The Kibao request is invalid.";
+}
+async function getSecretsWithRetry(credentials: KibaoCredentials, access: SmartString<KibaoAccess>) {
+  // One budget covers both attempts, so an OpenBao that accepts connections and never answers cannot hold a caller longer.
+  const options = { signal: AbortSignal.timeout(KIBAO_ACCESS_BUDGET_MS) };
+  try {
+    return await getSecrets(credentials, access, options);
+  } catch (error) {
+    if (isPermanentKibaoFailure(error) || options.signal.aborted) throw error;
+    await new Promise((resolve) => setTimeout(resolve, KIBAO_RETRY_DELAY_MS));
+    return getSecrets(credentials, access, options);
   }
-
+}
+export async function getAllVars(openbao: OpenBaoOptions, options?: { baseURL?: string }) {
+  const accesses = Array.from(entries(openbao)).filter(([, config]) => config);
+  const settled = await Promise.all(
+    accesses.map(async ([access, config]) => {
+      if (!config) return undefined;
+      const baseURL = options?.baseURL || getEnvSereverURL() || config.baseURL;
+      if (!baseURL) {
+        console.fatal("We could not determine the location of you openbao instance");
+        return void 0;
+      }
+      const { result, error } = await execute(getSecretsWithRetry({ ...config, baseURL }, access));
+      if (error) {
+        console.error("Failed to fetch variables for access", access, "with error", error);
+        return void 0;
+      }
+      return [access, result.vars] as const;
+    }),
+  );
+  const _vars: Partial<Record<keyof OpenBaoOptions, Record<string, string | number>>> = {};
+  for (const entry of settled) {
+    if (entry) _vars[entry[0]] = entry[1];
+  }
   return _vars;
+}
+function hasKibaoCredentials(config: KibaoCredentials) {
+  return Boolean((config.bao?.role?.id && config.bao?.secret?.id) || config.token);
+}
+export function isStartupComplete(openbao: OpenBaoOptions | undefined, vars: object, serverURL?: string) {
+  return Object.entries(openbao || {}).every(
+    ([access, config]) =>
+      !config ||
+      Object.hasOwn(vars, access) ||
+      !(serverURL || getEnvSereverURL() || config.baseURL) ||
+      !hasKibaoCredentials(config),
+  );
+}
+/** Share the initial read; retry incomplete startup on later traffic without holding those requests. */
+export function createStartupLatch<A extends unknown[]>(
+  run: (...args: A) => Promise<unknown> | unknown,
+  {
+    retryAfterMs = 1e3,
+    maxRetryAfterMs = 3e4,
+    now = Date.now,
+    background,
+  }: {
+    retryAfterMs?: number;
+    maxRetryAfterMs?: number;
+    now?: () => number;
+    background?: (attempt: Promise<unknown>, ...args: A) => void;
+  } = {},
+) {
+  let current: Promise<unknown> | undefined;
+  let notBefore = 0;
+  let failures = 0;
+  return (...args: A) => {
+    if (current !== void 0) return failures === 0 ? current : void 0;
+    if (now() < notBefore) return void 0;
+    // Defer invocation so synchronous throws follow the same recovery path as rejected reads.
+    const attempt = Promise.resolve().then(() => run(...args));
+    current = attempt;
+    const settle = (complete: unknown) => {
+      if (complete !== false) {
+        failures = 0;
+        return;
+      }
+      failures += 1;
+      notBefore = now() + Math.min(maxRetryAfterMs, retryAfterMs * 2 ** (failures - 1));
+      if (current === attempt) current = void 0;
+    };
+    const first = failures === 0;
+    attempt.then(settle, () => settle(false));
+    if (first) return attempt;
+    background?.(
+      attempt.then(void 0, () => void 0),
+      ...args,
+    );
+    return void 0;
+  };
 }

@@ -13,7 +13,8 @@ vi.mock("nitropack/runtime", () => ({
   useRuntimeConfig: mocks.useRuntimeConfig,
 }));
 
-vi.mock("../src/runtime/utils", () => ({
+vi.mock("../src/runtime/utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/runtime/utils")>()),
   getAllVars: mocks.getAllVars,
 }));
 
@@ -162,6 +163,7 @@ describe("kibao server env injection", () => {
 
     const firstRequest = request({ context: {}, node: {} });
     const secondRequest = request({ context: {}, node: {} });
+    await Promise.resolve();
     expect(mocks.getAllVars).toHaveBeenCalledTimes(1);
 
     resolveVars!({

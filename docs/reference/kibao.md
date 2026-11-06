@@ -52,7 +52,11 @@ export default defineNuxtConfig({
 
 ```ts
 const openbao: OpenBaoOptions = {
-  public: { baseURL: "https://bao.example.com", location: { path: "v1/app/data/public" }, token: "yes_this_ok_to_be_public_token" },
+  public: {
+    baseURL: "https://bao.example.com",
+    location: { path: "v1/app/data/public" },
+    token: "yes_this_ok_to_be_public_token",
+  },
 };
 ```
 
@@ -78,11 +82,7 @@ const test: KibaoTestConfig = {
 ## Runtime entry point
 
 ```ts
-import {
-  getAllVars,
-  getSecrets,
-  KIBAO_DEFAULT_MAX_RESPONSE_BYTES,
-} from "@chiballc/utils/kibao/runtime";
+import { getAllVars, getSecrets, KIBAO_DEFAULT_MAX_RESPONSE_BYTES } from "@chiballc/utils/kibao/runtime";
 ```
 
 ### `KibaoAccess`
@@ -246,12 +246,20 @@ const privateVars = await autoEnv("private", false); // reads without writing
 
 ### `getAllVars`
 
-`getAllVars(openbao, options?)` reads each configured access group. It returns a partial public/private record, skipping groups that are absent or fail to load.
+`getAllVars(openbao, options?)` reads configured access groups concurrently, with a four-second budget and at most one retry per group. It returns a partial public/private record, skipping groups that are absent or fail to load.
 
 ```ts
 const groups = await getAllVars(openbao, { baseURL: "https://bao.example.com" });
 console.log(groups.public, groups.private);
 ```
+
+### `createStartupLatch` and `isStartupComplete`
+
+`createStartupLatch(run, options?)` shares the initial attempt and caches success. A `false` result or a rejection permits a later request to retry with capped exponential backoff. Retries return `undefined` to callers; an optional `background` callback receives a non-rejecting promise for runtime lifetime management. Options include `retryAfterMs` (1,000), `maxRetryAfterMs` (30,000), and an injectable `now` clock.
+
+`isStartupComplete(openbao, vars, serverURL?)` reports whether every access with credentials and a resolvable server has an own property in the returned variables. Server resolution follows `getAllVars`, including environment overrides.
+
+Both helpers are available from `@chiballc/utils/kibao/runtime/utils`.
 
 ### `crawlVarsFromEnv`
 
