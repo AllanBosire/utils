@@ -18,6 +18,12 @@ export interface KibaoConfig {
     disabled?: boolean;
     /** @default false */
     serverOnly?: boolean;
+    /**
+     * Longest a request waits for the startup read, in milliseconds. A read that has not settled by then is dropped and
+     * the next request starts a new one.
+     * @default 5000
+     */
+    startupWaitMs?: number;
     openbao: OpenBaoOptions;
     vars?: KibaoVars;
     test?: KibaoTestConfig;

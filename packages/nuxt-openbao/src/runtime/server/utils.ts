@@ -75,6 +75,28 @@ function attachCloudflareVars(
   }
 }
 
+function resolveStartupWaitMs(value: unknown) {
+  const waitMs = Number(value);
+  return Number.isFinite(waitMs) && waitMs > 0 ? waitMs : undefined;
+}
+
+function callable(owner: unknown): owner is { waitUntil: (promise: Promise<unknown>) => void } {
+  return !!owner && typeof owner === "object" && typeof (owner as { waitUntil?: unknown }).waitUntil === "function";
+}
+
+/**
+ * Finds the runtime's `waitUntil` for the shapes Nitro hands to its hooks: an h3 event (`event.waitUntil`, Nitro's
+ * `event.context.waitUntil`, `event.context.cloudflare.context`), the `{ context }` of `cloudflare:queue` and
+ * `cloudflare:scheduled` (an `ExecutionContext`), and the Durable Object of `cloudflare:durable:init` (`ctx`).
+ * It is bound to its owner, because Workers reject a detached `waitUntil`.
+ */
+function waitUntilOf(event: unknown): ((promise: Promise<unknown>) => void) | undefined {
+  if (!event || typeof event !== "object") return undefined;
+  const source = event as Record<string, any>;
+  const owner = [source, source.context, source.context?.cloudflare?.context, source.ctx, source.state].find(callable);
+  return owner ? (promise) => owner.waitUntil(promise) : undefined;
+}
+
 export async function injectVars(options: { app: NitroApp }) {
   const init = (event?: H3Event) => {
     const config = event ? useRuntimeConfig(event) : useRuntimeConfig();
@@ -110,25 +132,19 @@ export async function injectVars(options: { app: NitroApp }) {
   };
 
   const vars = init();
-  const ensureStartup = createStartupLatch<[event?: H3Event]>((event) => vars?.refresh(event), {
-    background: (attempt, event) => {
-      const cloudflare = event?.context?.cloudflare;
-      const context =
-        cloudflare && typeof cloudflare === "object" && "context" in cloudflare ? cloudflare.context : undefined;
-      if (typeof event?.waitUntil === "function") event.waitUntil(attempt);
-      else if (
-        context &&
-        typeof context === "object" &&
-        "waitUntil" in context &&
-        typeof context.waitUntil === "function"
-      )
-        context.waitUntil(attempt);
+  const startupWaitMs = resolveStartupWaitMs(vars && useRuntimeConfig().kibao?.startupWaitMs);
+  const ensureStartup = createStartupLatch<[event?: unknown]>(
+    (event) => vars?.refresh(isH3Event(event) ? event : undefined),
+    {
+      ...(startupWaitMs === undefined ? {} : { waitMs: startupWaitMs }),
+      // Every attempt, the first included, outlives the request that started it where the runtime allows.
+      background: (attempt, event) => waitUntilOf(event)?.(attempt),
     },
-  });
+  );
   if (!isCloudflareWorker()) void ensureStartup()?.catch(() => {});
 
   const intoContext = async (event: { context?: Record<string, any> }, origin: string) => {
-    await ensureStartup(isH3Event(event) ? event : undefined);
+    await ensureStartup(event);
     if (needsEnvInjection()) {
       const data = vars?.data || {};
       console.info(`injecting variables into ${origin} process`);

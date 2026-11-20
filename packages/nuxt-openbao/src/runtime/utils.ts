@@ -397,31 +397,112 @@ export function isStartupComplete(openbao: OpenBaoOptions | undefined, vars: obj
       !hasKibaoCredentials(config),
   );
 }
-/** Share the initial read; retry incomplete startup on later traffic without holding those requests. */
+/**
+ * Default bound on how long a caller waits for a startup read: slightly above the 4 s budget of one OpenBao read
+ * (`KIBAO_ACCESS_BUDGET_MS`), so a live read always settles first and only a stranded one reaches it.
+ */
+export const KIBAO_STARTUP_WAIT_MS = 5e3;
+
+const noop = () => {};
+
+/**
+ * Share the initial read; retry incomplete startup on later traffic without holding those requests.
+ *
+ * Every attempt, the first included, is handed to `background` so a runtime that ties work to the request that
+ * started it (Cloudflare `waitUntil`) keeps it alive after that request ends. Callers that wait for the shared attempt
+ * wait at most `waitMs`: when it has not settled by then, the latch is dropped (the next caller starts a fresh read),
+ * `onTimeout` is told, and the waiting caller continues without a result instead of failing.
+ */
 export function createStartupLatch<A extends unknown[]>(
   run: (...args: A) => Promise<unknown> | unknown,
   {
     retryAfterMs = 1e3,
     maxRetryAfterMs = 3e4,
+    waitMs = KIBAO_STARTUP_WAIT_MS,
     now = Date.now,
     background,
+    onTimeout,
   }: {
     retryAfterMs?: number;
     maxRetryAfterMs?: number;
+    /** Longest a caller waits for a shared attempt, and a background attempt is kept alive. */
+    waitMs?: number;
     now?: () => number;
+    /** Receives a non-rejecting promise for every attempt, bounded by `waitMs`, with the arguments that started it. */
     background?: (attempt: Promise<unknown>, ...args: A) => void;
+    /** Called once when a stuck attempt is dropped. Defaults to a warning. */
+    onTimeout?: (info: { waitedMs: number }) => void;
   } = {},
 ) {
   let current: Promise<unknown> | undefined;
+  let startedAt = 0;
+  let pending = false;
   let notBefore = 0;
   let failures = 0;
+  const abandoned = new WeakSet<Promise<unknown>>();
+
+  // Drops an attempt that did not settle in time, so the next caller starts a fresh read instead of inheriting it.
+  const abandon = (attempt: Promise<unknown>) => {
+    if (current !== attempt) return;
+    current = void 0;
+    pending = false;
+    abandoned.add(attempt);
+    try {
+      (onTimeout ?? defaultOnTimeout)({ waitedMs: waitMs });
+    } catch {
+      // Reporting must not turn a recovered stall into a failed request.
+    }
+  };
+
+  // Each caller waits on its own timer, so a caller is never held by a timer that belongs to another request.
+  const waitFor = (attempt: Promise<unknown>) =>
+    new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        abandon(attempt);
+        resolve(void 0);
+      }, waitMs);
+      attempt.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+
+  // Never rejects, and ends after `waitMs` at the latest, so keeping it alive cannot outlast a read that cannot settle.
+  // The timer belongs to the request that started the attempt, which `background` keeps alive, so a retry nobody waits
+  // for is dropped here too and cannot block recovery for good.
+  const keepAlive = (attempt: Promise<unknown>) =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        abandon(attempt);
+        resolve();
+      }, waitMs);
+      attempt.then(noop, noop).then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
   return (...args: A) => {
-    if (current !== void 0) return failures === 0 ? current : void 0;
+    if (current !== void 0) {
+      // A waiter's own timer can be lost with its request; the age of the first attempt is the backstop for that.
+      if (pending && failures === 0 && now() - startedAt >= waitMs) abandon(current);
+      else return failures === 0 ? waitFor(current) : void 0;
+    }
     if (now() < notBefore) return void 0;
     // Defer invocation so synchronous throws follow the same recovery path as rejected reads.
     const attempt = Promise.resolve().then(() => run(...args));
     current = attempt;
+    startedAt = now();
+    pending = true;
     const settle = (complete: unknown) => {
+      if (abandoned.has(attempt)) return;
+      pending = false;
       if (complete !== false) {
         failures = 0;
         return;
@@ -432,11 +513,17 @@ export function createStartupLatch<A extends unknown[]>(
     };
     const first = failures === 0;
     attempt.then(settle, () => settle(false));
-    if (first) return attempt;
-    background?.(
-      attempt.then(void 0, () => void 0),
-      ...args,
-    );
-    return void 0;
+    try {
+      background?.(keepAlive(attempt), ...args);
+    } catch {
+      // A runtime that refuses to extend its lifetime must not fail the request that started the read.
+    }
+    return first ? waitFor(attempt) : void 0;
   };
+}
+
+function defaultOnTimeout({ waitedMs }: { waitedMs: number }) {
+  console.warn(
+    `The Kibao startup read did not settle within ${waitedMs} ms; it was dropped and the next request starts a fresh one.`,
+  );
 }
