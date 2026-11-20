@@ -17,6 +17,8 @@ export default defineNuxtConfig({
     preset: "cloudflare_module",
   },
   kibao: {
+    // A ready Worker serves everything: the requests below must still answer 200 through the middleware.
+    requireReady: true,
     server: {
       bao: mockOpenBaoURL,
     },

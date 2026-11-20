@@ -129,6 +129,14 @@ export default defineNuxtModule<KibaoConfig["kibao"]>({
       nitroConfig.plugins = nitroConfig.plugins || [];
       nitroConfig.plugins.unshift(serverPlugin);
 
+      if (resolved.requireReady && !testVars) {
+        nitroConfig.handlers = nitroConfig.handlers || [];
+        nitroConfig.handlers.unshift({
+          handler: resolver.resolve("./runtime/server/middleware/require-ready"),
+          middleware: true,
+        });
+      }
+
       if (!serverOnly && !testVars) {
         nitroConfig.handlers = nitroConfig.handlers || [];
         nitroConfig.handlers.unshift({

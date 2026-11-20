@@ -51,6 +51,16 @@ On Workers, every startup attempt, the first included, is registered with the ru
 
 A request waits for the shared attempt for at most five seconds, slightly above the four-second read budget. Set `kibao.startupWaitMs` to change it. A read that has not settled by then is dropped with a warning, the request continues with the variables already loaded, and the next request starts a fresh read. Variables that were read successfully stay available if a later refresh fails or stalls.
 
+### Readiness
+
+A request that continued after the wait bound on a fresh isolate runs without variables. Kibao reports what a request can rely on as `event.context.vars.state`, or with `kibaoReadiness(event)` from `@chiballc/utils/kibao/runtime/server/utils`:
+
+- `loaded`: the latest read succeeded;
+- `stale`: something was read earlier and a later read failed, timed out, or left a document unread, so the last good values are in use;
+- `none`: nothing has been read on this isolate yet, because the startup wait timed out or failed.
+
+The state is live: a payload created before a background retry finishes reports the new state afterwards. To refuse requests while it is `none`, set `kibao.requireReady: true`. Kibao then answers `503` with `Retry-After: 2` (code `KIBAO_NOT_READY`) from a middleware registered first, except for `/bao-proxy` and `/_nuxt`. Pass an object to add `exclude` path prefixes (health checks, for example) or change `retryAfter` (seconds). `stale` and `loaded` requests are never refused. An application that needs its own response can leave the option off and check `kibaoReadiness(event)` in its own middleware instead.
+
 ## Request safety
 
 The runtime helpers `getSecrets`, `getKibaoHeaders`, and `getKibaoToken` accept a caller-owned `AbortSignal`. Responses must be JSON and are streamed with a maximum size of 64 KiB. These low-level helpers do not retry failed network operations, and its transport errors avoid including credentials, tokens, URLs, or response bodies.
@@ -95,7 +105,7 @@ Never enable test fixture values in a deployed application.
 
 ## Complete API reference
 
-The Nuxt module accepts `disabled`, `serverOnly`, `startupWaitMs`, `openbao`, `vars`, `test`, and `server` configuration. `disabled` stops setup entirely. `serverOnly` prevents the client plugin and `/bao-proxy/**` route from being added. `startupWaitMs` bounds how long a request waits for the startup read. `openbao` is a public/private map of credentials. `vars` holds already-loaded values. `server.bao` is the OpenBao origin, while `server.base` is retained in the runtime configuration.
+The Nuxt module accepts `disabled`, `serverOnly`, `startupWaitMs`, `requireReady`, `openbao`, `vars`, `test`, and `server` configuration. `disabled` stops setup entirely. `serverOnly` prevents the client plugin and `/bao-proxy/**` route from being added. `startupWaitMs` bounds how long a request waits for the startup read. `openbao` is a public/private map of credentials. `vars` holds already-loaded values. `server.bao` is the OpenBao origin, while `server.base` is retained in the runtime configuration.
 
 `KibaoConfig`, `PublicKibaoConfig`, `OpenBaoOptions`, `KibaoVars`, and `KibaoTestConfig` describe the module configuration and generated runtime shapes. `KibaoAccess` is `"public" | "private"`. `Location` accepts either `{ app, environment }` or `{ path }`. `KibaoCredentials` combines a location and base URL with either AppRole credentials or a token. `KibaoRequestOptions` accepts `signal` and `maxResponseBytes`. `KibaoRoleCredentials`, `KibaoTokenCredentials`, `KibaoLoginResponse`, `SecretFrom`, and `Environments` describe those constituent values.
 

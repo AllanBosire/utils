@@ -32,7 +32,7 @@ The module also augments Nuxt's `RuntimeConfig` with the full `KibaoConfig` shap
 
 ### `KibaoConfig`
 
-`KibaoConfig` has a `kibao` object. Its `disabled` flag stops all module setup. Its `serverOnly` flag omits the browser plugin and proxy route. Its `startupWaitMs` (default 5,000) bounds how long a request waits for the startup read. `openbao` describes one or both credential groups. `vars` holds loaded values. `test` enables fixture values. `server.bao` is the OpenBao origin and `server.base` is the application server URL retained in runtime configuration.
+`KibaoConfig` has a `kibao` object. Its `disabled` flag stops all module setup. Its `serverOnly` flag omits the browser plugin and proxy route. Its `startupWaitMs` (default 5,000) bounds how long a request waits for the startup read. Its `requireReady` (default false, or `{ exclude?, retryAfter? }`) answers 503 with `Retry-After` while nothing has been read. `openbao` describes one or both credential groups. `vars` holds loaded values. `test` enables fixture values. `server.bao` is the OpenBao origin and `server.base` is the application server URL retained in runtime configuration.
 
 ```ts
 export default defineNuxtConfig({
@@ -330,7 +330,7 @@ const fixtures = getTestVars({
 
 ### `runtime/server/utils`: `injectVars`
 
-`injectVars({ app })` installs Nitro hooks that load values, update environment and runtime configuration, and expose a refreshable `{ data, refresh }` payload on request context. It also handles the supported Cloudflare request hooks.
+`kibaoReadiness(event)` returns `"loaded"`, `"stale"` or `"none"` from the `state` of the injected `event.context.vars` (`none` when absent); see [Readiness](/packages/kibao#readiness). `injectVars({ app })` installs Nitro hooks that load values, update environment and runtime configuration, and expose a refreshable `{ data, refresh }` payload on request context. It also handles the supported Cloudflare request hooks.
 
 ```ts
 export default defineNitroPlugin((app) => injectVars({ app }));

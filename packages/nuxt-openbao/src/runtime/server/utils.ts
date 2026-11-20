@@ -4,7 +4,7 @@ import { createStartupLatch, getAllVars, isStartupComplete } from "../utils";
 import { getTestVars } from "../test";
 import { entries } from "@chiballc/utils";
 import type { NitroApp } from "nitropack";
-import type { KibaoConfig, KibaoVars } from "../types";
+import type { KibaoConfig, KibaoReadiness, KibaoVars } from "../types";
 import type { H3Event } from "h3";
 import { env } from "std-env";
 import type { None } from "@chiballc/types";
@@ -48,9 +48,24 @@ function isCloudflareWorker() {
   return "WebSocketPair" in globalThis;
 }
 
-function createVarsPayload(vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<boolean> }) {
+type KibaoVarsSource = {
+  readonly data: KibaoVars;
+  readonly state: KibaoReadiness;
+  refresh(refreshEvent?: H3Event): Promise<boolean>;
+};
+
+/** The readiness a request can rely on, from the `event.context.vars` that Kibao injects. `none` when it is absent. */
+export function kibaoReadiness(event: { context?: Record<string, any> }): KibaoReadiness {
+  const state = event.context?.vars?.state;
+  return state === "loaded" || state === "stale" ? state : "none";
+}
+
+function createVarsPayload(vars: KibaoVarsSource) {
   return {
     [KIBAO_INJECTED_ENV]: "true",
+    get state() {
+      return vars.state;
+    },
     get data() {
       return { ...vars.data, [KIBAO_INJECTED_ENV]: "true" };
     },
@@ -58,10 +73,7 @@ function createVarsPayload(vars: { readonly data: KibaoVars; refresh(refreshEven
   };
 }
 
-function attachCloudflareVars(
-  event: Record<string, any>,
-  vars: { readonly data: KibaoVars; refresh(refreshEvent?: H3Event): Promise<boolean> },
-) {
+function attachCloudflareVars(event: Record<string, any>, vars: KibaoVarsSource) {
   if (event.env && typeof event.env === "object") {
     Object.assign(event.env, vars.data);
   }
@@ -106,13 +118,32 @@ export async function injectVars(options: { app: NitroApp }) {
       return;
     }
 
+    // Tracked per isolate and read live by every request, so it follows the latest read.
+    let state: KibaoReadiness = "none";
+    let everRead = false;
+    const settleState = (complete: boolean) => {
+      state = complete ? "loaded" : everRead ? "stale" : "none";
+    };
+
     const refresh = async (refreshEvent?: H3Event) => {
+      try {
+        const complete = await load(refreshEvent);
+        settleState(complete);
+        return complete;
+      } catch (error) {
+        settleState(false);
+        throw error;
+      }
+    };
+
+    const load = async (refreshEvent?: H3Event) => {
       const refreshConfig = refreshEvent ? useRuntimeConfig(refreshEvent) : config;
       const refreshKibao = reconsileConfig(crawlVarsFromEnv(), refreshConfig);
       const test = getTestVars(refreshKibao);
       const vars = test || (await getAllVars(refreshKibao.openbao || {}, { baseURL: refreshKibao.server?.bao }));
 
       for (const [_, _vars] of entries(vars)) {
+        if (_vars) everRead = true;
         kibao.vars = {
           ...(kibao.vars || {}),
           ...(_vars || {}),
@@ -126,6 +157,9 @@ export async function injectVars(options: { app: NitroApp }) {
     return {
       get data() {
         return kibao.vars || {};
+      },
+      get state() {
+        return state;
       },
       refresh,
     };

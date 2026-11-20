@@ -88,6 +88,7 @@ export function reconsileConfig<T extends RuntimeConfigLike>(
     disabled: publicKibao.disabled ?? moduleOptions.disabled,
     serverOnly: publicKibao.serverOnly ?? moduleOptions.serverOnly,
     startupWaitMs: publicKibao.startupWaitMs ?? moduleOptions.startupWaitMs,
+    requireReady: publicKibao.requireReady ?? moduleOptions.requireReady,
     openbao: defu(publicKibao.openbao || {}, moduleOptions.openbao),
     vars: defu(publicKibao.vars || {}, moduleOptions.vars),
     test: publicKibao.test ?? moduleOptions.test,
