@@ -1,6 +1,6 @@
 {
   "name": "kibao",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "Nuxt Open Bao Module",
   "repository": "@chiballc/kibao",
   "license": "MIT",
@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@chiballc/types": "^0.0.0",
-    "@chiballc/utils": "^2.2.2",
+    "@chiballc/utils": "^2.6.3",
     "@nuxt/kit": "^4.4.6",
     "consola": "^3.4.2",
     "defu": "^6.1.7",
