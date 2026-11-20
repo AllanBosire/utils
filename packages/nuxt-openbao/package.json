@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@chiballc/types": "^0.0.0",
-    "@chiballc/utils": "^2.6.3",
+    "@chiballc/utils": "^2.2.2",
     "@nuxt/kit": "^4.4.6",
     "consola": "^3.4.2",
     "defu": "^6.1.7",
