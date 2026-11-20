@@ -45,7 +45,11 @@ Environment variables can override configuration. Kibao recognizes `NUXT_KIBAO_*
 
 Startup reads access documents concurrently. Each access has a four-second budget covering AppRole login, the document read, and at most one retry after 250 ms. Successful documents remain available if another access fails. Missing credentials or a missing server are skipped rather than retried indefinitely.
 
-The initial startup attempt is shared by waiting requests. If startup is incomplete, later traffic triggers a single background retry after a one-second backoff, doubling up to 30 seconds. Those requests do not wait for recovery; handlers must continue to reject operations that lack required configuration. Recovery stops once all readable accesses have loaded. On Workers, HTTP recovery is registered with the request's `waitUntil` where available.
+The initial startup attempt is shared by waiting requests. If startup is incomplete, later traffic triggers a single background retry after a one-second backoff, doubling up to 30 seconds. Those requests do not wait for recovery; handlers must continue to reject operations that lack required configuration. Recovery stops once all readable accesses have loaded.
+
+On Workers, every startup attempt, the first included, is registered with the runtime's `waitUntil` (taken from the request, or from the execution context of the queue and scheduled hooks and the Durable Object's state), so a client that cancels the request that started the read does not strand it for the requests after it. Cloudflare ties a subrequest to the request that started it; without this, a read begun by a request that is then cancelled can never settle, and every later request on that isolate would wait on it.
+
+A request waits for the shared attempt for at most five seconds, slightly above the four-second read budget. Set `kibao.startupWaitMs` to change it. A read that has not settled by then is dropped with a warning, the request continues with the variables already loaded, and the next request starts a fresh read. Variables that were read successfully stay available if a later refresh fails or stalls.
 
 ## Request safety
 
@@ -91,7 +95,7 @@ Never enable test fixture values in a deployed application.
 
 ## Complete API reference
 
-The Nuxt module accepts `disabled`, `serverOnly`, `openbao`, `vars`, `test`, and `server` configuration. `disabled` stops setup entirely. `serverOnly` prevents the client plugin and `/bao-proxy/**` route from being added. `openbao` is a public/private map of credentials. `vars` holds already-loaded values. `server.bao` is the OpenBao origin, while `server.base` is retained in the runtime configuration.
+The Nuxt module accepts `disabled`, `serverOnly`, `startupWaitMs`, `openbao`, `vars`, `test`, and `server` configuration. `disabled` stops setup entirely. `serverOnly` prevents the client plugin and `/bao-proxy/**` route from being added. `startupWaitMs` bounds how long a request waits for the startup read. `openbao` is a public/private map of credentials. `vars` holds already-loaded values. `server.bao` is the OpenBao origin, while `server.base` is retained in the runtime configuration.
 
 `KibaoConfig`, `PublicKibaoConfig`, `OpenBaoOptions`, `KibaoVars`, and `KibaoTestConfig` describe the module configuration and generated runtime shapes. `KibaoAccess` is `"public" | "private"`. `Location` accepts either `{ app, environment }` or `{ path }`. `KibaoCredentials` combines a location and base URL with either AppRole credentials or a token. `KibaoRequestOptions` accepts `signal` and `maxResponseBytes`. `KibaoRoleCredentials`, `KibaoTokenCredentials`, `KibaoLoginResponse`, `SecretFrom`, and `Environments` describe those constituent values.
 

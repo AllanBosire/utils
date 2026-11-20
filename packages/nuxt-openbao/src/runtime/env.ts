@@ -87,6 +87,7 @@ export function reconsileConfig<T extends RuntimeConfigLike>(
   let merged = defu(config!.kibao, {
     disabled: publicKibao.disabled ?? moduleOptions.disabled,
     serverOnly: publicKibao.serverOnly ?? moduleOptions.serverOnly,
+    startupWaitMs: publicKibao.startupWaitMs ?? moduleOptions.startupWaitMs,
     openbao: defu(publicKibao.openbao || {}, moduleOptions.openbao),
     vars: defu(publicKibao.vars || {}, moduleOptions.vars),
     test: publicKibao.test ?? moduleOptions.test,

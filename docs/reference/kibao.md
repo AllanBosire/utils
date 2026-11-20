@@ -32,7 +32,7 @@ The module also augments Nuxt's `RuntimeConfig` with the full `KibaoConfig` shap
 
 ### `KibaoConfig`
 
-`KibaoConfig` has a `kibao` object. Its `disabled` flag stops all module setup. Its `serverOnly` flag omits the browser plugin and proxy route. `openbao` describes one or both credential groups. `vars` holds loaded values. `test` enables fixture values. `server.bao` is the OpenBao origin and `server.base` is the application server URL retained in runtime configuration.
+`KibaoConfig` has a `kibao` object. Its `disabled` flag stops all module setup. Its `serverOnly` flag omits the browser plugin and proxy route. Its `startupWaitMs` (default 5,000) bounds how long a request waits for the startup read. `openbao` describes one or both credential groups. `vars` holds loaded values. `test` enables fixture values. `server.bao` is the OpenBao origin and `server.base` is the application server URL retained in runtime configuration.
 
 ```ts
 export default defineNuxtConfig({
@@ -257,7 +257,9 @@ console.log(groups.public, groups.private);
 
 ### `createStartupLatch` and `isStartupComplete`
 
-`createStartupLatch(run, options?)` shares the initial attempt and caches success. A `false` result or a rejection permits a later request to retry with capped exponential backoff. Retries return `undefined` to callers; an optional `background` callback receives a non-rejecting promise for runtime lifetime management. Options include `retryAfterMs` (1,000), `maxRetryAfterMs` (30,000), and an injectable `now` clock.
+`createStartupLatch(run, options?)` shares the initial attempt and caches success. A `false` result or a rejection permits a later request to retry with capped exponential backoff. Retries return `undefined` to callers. An optional `background` callback receives a non-rejecting promise for every attempt, the first included, together with the arguments that started it, so a runtime that ties work to a request (Workers `waitUntil`) can keep it alive; that promise ends after `waitMs` at the latest. A `background` that throws does not fail the request.
+
+Callers that wait for the shared attempt wait at most `waitMs` (default `KIBAO_STARTUP_WAIT_MS`, 5,000). When the attempt has not settled by then, it is dropped (also when it is a retry nobody waits for), `onTimeout({ waitedMs })` is called once (default: a warning), the waiting caller resolves with `undefined`, and the next caller starts a fresh read. The late result of a dropped attempt is ignored. Options include `retryAfterMs` (1,000), `maxRetryAfterMs` (30,000), `waitMs`, `onTimeout`, and an injectable `now` clock. In the Nuxt module, `kibao.startupWaitMs` sets `waitMs`.
 
 `isStartupComplete(openbao, vars, serverURL?)` reports whether every access with credentials and a resolvable server has an own property in the returned variables. Server resolution follows `getAllVars`, including environment overrides.
 
